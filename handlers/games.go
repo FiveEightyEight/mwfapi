@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/FiveEightyEight/mwfapi/db"
+	"github.com/FiveEightyEight/mwfapi/game"
 	"github.com/FiveEightyEight/mwfapi/models"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -20,7 +21,8 @@ func CreateGame(rdb *db.RedisClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Get the game name from the request
 		var req struct {
-			Name string `json:"name"`
+			Name       string            `json:"name"`
+			GameConfig models.GameConfig `json:"game_config"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request format"})
@@ -43,14 +45,20 @@ func CreateGame(rdb *db.RedisClient) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create game"})
 		}
 
+		// Generate game problems
+		problems := game.GenerateGameProblems(req.GameConfig)
+
 		// Create a new game session
 		gameSession := &models.GameSession{
-			ID:      uuid.New(),
-			Name:    req.Name,
-			GameID:  newGame.ID,
-			Status:  "waiting",
-			Players: []models.User{},
-			Scores:  []models.Score{},
+			ID:                  uuid.New(),
+			Name:                req.Name,
+			GameID:              newGame.ID,
+			Status:              "waiting",
+			Players:             []models.User{},
+			Scores:              []models.Score{},
+			GameConfig:          req.GameConfig,
+			Problems:            problems,
+			CurrentProblemIndex: 0,
 		}
 
 		// Save the game session to Redis
