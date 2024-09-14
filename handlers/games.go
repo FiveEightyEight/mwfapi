@@ -153,6 +153,40 @@ func ConnectToGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Game session ID is required"})
 		}
 
+		// Get user information from the context
+		userID := c.Get("userID").(string)
+		username := c.Get("username").(string)
+
+		// Get the current game session
+		gameSession, err := rdb.GetGameSession(c.Request().Context(), uuid.MustParse(sessionID))
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get game session"})
+		}
+
+		// Check if the user is already in the game session
+		userExists := false
+		for _, player := range gameSession.Players {
+			if player.ID.String() == userID {
+				userExists = true
+				break
+			}
+		}
+
+		// If the user is not in the game session, add them
+		if !userExists {
+			newPlayer := models.User{
+				ID:       uuid.MustParse(userID),
+				Username: username,
+			}
+			gameSession.Players = append(gameSession.Players, newPlayer)
+
+			// Update the game session in Redis
+			err = rdb.UpdateGameSession(c.Request().Context(), gameSession)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update game session"})
+			}
+		}
+
 		// Upgrade the HTTP connection to a WebSocket connection
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
@@ -167,11 +201,7 @@ func ConnectToGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 		}
 
 		// Send initial game session data
-		initialSession, err := rdb.GetGameSession(c.Request().Context(), uuid.MustParse(sessionID))
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get initial game session data"})
-		}
-		err = ws.WriteJSON(initialSession)
+		err = ws.WriteJSON(gameSession)
 		if err != nil {
 			return nil
 		}
