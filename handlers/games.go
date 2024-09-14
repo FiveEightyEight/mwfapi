@@ -110,7 +110,7 @@ func GetActiveGameSessions(rdb *db.RedisClient) echo.HandlerFunc {
 
 func CloseGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		sessionID := c.Param("id")
+		sessionID := c.Param("game_session_id")
 		if sessionID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Session ID is required"})
 		}
@@ -126,7 +126,7 @@ func CloseGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 
 func UpdateGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		sessionID := c.Param("id")
+		sessionID := c.Param("game_session_id")
 		if sessionID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Session ID is required"})
 		}
@@ -148,9 +148,9 @@ func UpdateGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 
 func ConnectToGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		sessionID := c.Param("id")
+		sessionID := c.Param("game_session_id")
 		if sessionID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Session ID is required"})
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Game session ID is required"})
 		}
 
 		// Upgrade the HTTP connection to a WebSocket connection
