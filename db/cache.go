@@ -202,7 +202,11 @@ func (rc *RedisClient) GetActiveGameSessions(ctx context.Context) ([]*models.Gam
 }
 
 func (rc *RedisClient) CloseGameSession(ctx context.Context, sessionID uuid.UUID) error {
-	// Implementation to close a game session in Redis
+	err := rc.DeleteGameSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return rc.UpdateActiveGameSessions(ctx, sessionID, false)
 }
 
 func (rc *RedisClient) UpdateActiveGameSessions(ctx context.Context, gameSessionID uuid.UUID, add bool) error {
