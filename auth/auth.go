@@ -10,7 +10,8 @@ import (
 )
 
 type Claims struct {
-	UserID string `json:"ui"`
+	UserID   string `json:"ui"`
+	Username string `json:"username"`
 	jwt.RegisteredClaims
 }
 
@@ -22,9 +23,10 @@ func getTokenSecretVar(key string) []byte {
 	return []byte(os.Getenv(key))
 }
 
-func GenerateAccessToken(userID string) (string, error) {
+func GenerateAccessToken(userID string, username string) (string, error) {
 	claims := &Claims{
-		UserID: userID,
+		UserID:   userID,
+		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 		},
@@ -35,9 +37,10 @@ func GenerateAccessToken(userID string) (string, error) {
 	return token.SignedString(accessTokenSecret)
 }
 
-func GenerateRefreshToken(userID string) (string, error) {
+func GenerateRefreshToken(userID string, username string) (string, error) {
 	claims := &Claims{
-		UserID: userID,
+		UserID:   userID,
+		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
 		},
@@ -77,12 +80,12 @@ func RefreshTokens(refreshTokenString string) (string, string, error) {
 		return "", "", err
 	}
 
-	newAccessToken, err := GenerateAccessToken(claims.UserID)
+	newAccessToken, err := GenerateAccessToken(claims.UserID, claims.Username)
 	if err != nil {
 		return "", "", err
 	}
 
-	newRefreshToken, err := GenerateRefreshToken(claims.UserID)
+	newRefreshToken, err := GenerateRefreshToken(claims.UserID, claims.Username)
 	if err != nil {
 		return "", "", err
 	}

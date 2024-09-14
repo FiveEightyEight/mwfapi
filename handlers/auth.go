@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/FiveEightyEight/mwfapi/auth"
@@ -18,21 +17,23 @@ const (
 
 func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" || len(strings.Split(authHeader, " ")) != 2 {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid authorization header"})
-		}
-		tokenString := strings.Split(authHeader, " ")[1]
-		if tokenString == "" {
-			return echo.NewHTTPError(http.StatusUnauthorized, "Missing auth token")
-		}
-
-		claims, err := auth.ValidateToken(tokenString, false)
+		// Check for the refresh token cookie
+		cookie, err := c.Cookie(refreshTokenCookieName)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusUnauthorized, "Invalid auth token")
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Refresh token cookie is missing"})
+		}
+		refreshToken := cookie.Value
+
+		// Validate the refresh token
+		claims, err := auth.ValidateToken(refreshToken, true)
+		if err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid refresh token"})
 		}
 
+		// Set the user ID in the context
 		c.Set("userID", claims.UserID)
+		c.Set("username", claims.Username)
+
 		return next(c)
 	}
 }
@@ -85,7 +86,7 @@ func Login(rdb *db.RedisClient) echo.HandlerFunc {
 		}
 
 		// Generate new refresh token
-		newRefreshToken, err := auth.GenerateRefreshToken(user.ID.String())
+		newRefreshToken, err := auth.GenerateRefreshToken(user.ID.String(), user.Username)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate new refresh token"})
 		}
@@ -101,7 +102,7 @@ func Login(rdb *db.RedisClient) echo.HandlerFunc {
 		})
 
 		// Generate new access token
-		newAccessToken, err := auth.GenerateAccessToken(user.ID.String())
+		newAccessToken, err := auth.GenerateAccessToken(user.ID.String(), user.Username)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate new access token"})
 		}
