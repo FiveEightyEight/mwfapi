@@ -27,10 +27,15 @@ type Game struct {
 
 type GameSession struct {
 	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
 	GameID    uuid.UUID `json:"game_id"`
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time"`
 	Players   []User    `json:"players"`
 	Scores    []Score   `json:"scores"`
 	Status    string    `json:"status"`
+}
+
+type ActiveGameSession struct {
+	Games []uuid.UUID `json:"games"`
 }

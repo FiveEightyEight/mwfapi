@@ -110,7 +110,11 @@ func (rc *RedisClient) CreateGameSession(ctx context.Context, gameSession *model
 	if err != nil {
 		return err
 	}
-	return rc.client.Set(ctx, fmt.Sprintf("game_session:%s", gameSession.ID), gameSessionJSON, 0).Err()
+	err = rc.client.Set(ctx, fmt.Sprintf("game_session:%s", gameSession.ID), gameSessionJSON, 0).Err()
+	if err != nil {
+		return err
+	}
+	return rc.UpdateActiveGameSessions(ctx, gameSession.ID, true)
 }
 
 func (rc *RedisClient) GetGameSession(ctx context.Context, id uuid.UUID) (*models.GameSession, error) {
@@ -128,7 +132,11 @@ func (rc *RedisClient) UpdateGameSession(ctx context.Context, gameSession *model
 }
 
 func (rc *RedisClient) DeleteGameSession(ctx context.Context, id uuid.UUID) error {
-	return rc.client.Del(ctx, fmt.Sprintf("game_session:%s", id)).Err()
+	err := rc.client.Del(ctx, fmt.Sprintf("game_session:%s", id)).Err()
+	if err != nil {
+		return err
+	}
+	return rc.UpdateActiveGameSessions(ctx, id, false)
 }
 
 // Subscribe to GameSession
@@ -168,4 +176,41 @@ func (rc *RedisClient) PublishGameSessionUpdate(ctx context.Context, gameSession
 		return err
 	}
 	return rc.client.Publish(ctx, fmt.Sprintf("game_session:%s", gameSession.ID), gameSessionJSON).Err()
+}
+
+func (rc *RedisClient) GetActiveGameSessions(ctx context.Context) ([]*models.GameSession, error) {
+	key := "active_game_sessions"
+	sessionIDs, err := rc.client.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var activeSessions []*models.GameSession
+	for _, idStr := range sessionIDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		session, err := rc.GetGameSession(ctx, id)
+		if err != nil {
+			continue
+		}
+		activeSessions = append(activeSessions, session)
+	}
+
+	return activeSessions, nil
+}
+
+func (rc *RedisClient) CloseGameSession(ctx context.Context, sessionID uuid.UUID) error {
+	// Implementation to close a game session in Redis
+}
+
+func (rc *RedisClient) UpdateActiveGameSessions(ctx context.Context, gameSessionID uuid.UUID, add bool) error {
+	key := "active_game_sessions"
+
+	if add {
+		return rc.client.SAdd(ctx, key, gameSessionID.String()).Err()
+	} else {
+		return rc.client.SRem(ctx, key, gameSessionID.String()).Err()
+	}
 }
