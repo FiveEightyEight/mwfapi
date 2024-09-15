@@ -32,21 +32,28 @@ func main() {
 	e.Use(middleware.Logger())
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins:     []string{"http://localhost:5173", "http://192.168.1.155:5173"},
-		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		AllowOrigins:     []string{"http://192.168.1.155:5173"},
+		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "credentials"},
 		AllowCredentials: true,
+		ExposeHeaders:    []string{"Set-Cookie", "Access-Control-Allow-Origin"},
 	}))
+
+	e.OPTIONS("/*", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	})
 
 	e.GET("/", homePath)
 	e.POST("/login", handlers.Login(rdb))
+	e.POST("/register", handlers.Register(rdb))
 	e.POST("/refresh", handlers.RefreshToken)
+	e.GET("/active-sessions", handlers.GetActiveGameSessions(rdb))
 
 	gameGroup := e.Group("/v1/api")
 	gameGroup.Use(handlers.AuthMiddleware)
 	gameGroup.GET("/game/:game_session_id", handlers.ConnectToGameSession(rdb))
 	// gameGroup.GET("/:id", handlers.GetGame(rdb))
 	port := ":8088"
-	e.Logger.Fatal(e.Start(port))
+	e.Logger.Fatal(e.Start("0.0.0.0" + port))
 	log.Printf("Server is running on port %s\n", port)
 }
