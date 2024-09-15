@@ -42,13 +42,7 @@ func CreateUser(rdb *db.RedisClient) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate refresh token"})
 		}
 
-		c.SetCookie(&http.Cookie{
-			Name:     refreshTokenCookieName,
-			Value:    refreshToken,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteStrictMode,
-		})
+		c.SetCookie(createRefreshTokenCookie(refreshToken))
 
 		return c.JSON(http.StatusCreated, map[string]interface{}{
 			"user_id":       newUser.ID,

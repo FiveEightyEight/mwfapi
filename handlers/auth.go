@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"time"
 
+	"strings"
+
 	"github.com/FiveEightyEight/mwfapi/auth"
 	"github.com/FiveEightyEight/mwfapi/db"
+	"github.com/FiveEightyEight/mwfapi/models"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
@@ -50,14 +53,7 @@ func RefreshToken(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid refresh token"})
 	}
 
-	c.SetCookie(&http.Cookie{
-		Name:     refreshTokenCookieName,
-		Value:    newRefreshToken,
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-		HttpOnly: true,
-		Secure:   false,                 // Ensure this is true in production (over HTTPS)
-		SameSite: http.SameSiteNoneMode, // Ensure this is true in production (over HTTPS)
-	})
+	c.SetCookie(createRefreshTokenCookie(newRefreshToken))
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"t": newAccessToken,
@@ -92,14 +88,7 @@ func Login(rdb *db.RedisClient) echo.HandlerFunc {
 		}
 
 		// Set the new refresh token as a cookie
-		c.SetCookie(&http.Cookie{
-			Name:     refreshTokenCookieName,
-			Value:    newRefreshToken,
-			Expires:  time.Now().Add(30 * 24 * time.Hour),
-			HttpOnly: true,
-			Secure:   true, // Ensure this is true in production (over HTTPS)
-			SameSite: http.SameSiteStrictMode,
-		})
+		c.SetCookie(createRefreshTokenCookie(newRefreshToken))
 
 		// Generate new access token
 		newAccessToken, err := auth.GenerateAccessToken(user.ID.String(), user.Username)
@@ -110,5 +99,59 @@ func Login(rdb *db.RedisClient) echo.HandlerFunc {
 		return c.JSON(http.StatusOK, map[string]string{
 			"t": newAccessToken,
 		})
+	}
+}
+
+func Register(rdb *db.RedisClient) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req struct {
+			Username string `json:"username"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
+		}
+
+		// Validate username length
+		if len(req.Username) < 3 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Username must be at least 3 characters long"})
+		}
+
+		// Create a new user
+		newUser := &models.User{
+			ID:       uuid.New(),
+			Username: strings.ToLower(req.Username),
+		}
+
+		// Save the user to Redis
+		err := rdb.CreateUser(c.Request().Context(), newUser)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
+		}
+
+		// Generate refresh token
+		refreshToken, err := auth.GenerateRefreshToken(newUser.ID.String(), newUser.Username)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate refresh token"})
+		}
+
+		// Set the refresh token as a cookie
+		c.SetCookie(createRefreshTokenCookie(refreshToken))
+
+		return c.JSON(http.StatusCreated, map[string]interface{}{
+			"user_id":  newUser.ID,
+			"username": newUser.Username,
+		})
+	}
+}
+
+func createRefreshTokenCookie(refreshToken string) *http.Cookie {
+	return &http.Cookie{
+		Name:     refreshTokenCookieName,
+		Value:    refreshToken,
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		Domain:   "192.168.1.155",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production (over HTTPS)
+		SameSite: http.SameSiteLaxMode,
 	}
 }
