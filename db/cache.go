@@ -128,7 +128,13 @@ func (rc *RedisClient) GetGameSession(ctx context.Context, id uuid.UUID) (*model
 }
 
 func (rc *RedisClient) UpdateGameSession(ctx context.Context, gameSession *models.GameSession) error {
-	return rc.CreateGameSession(ctx, gameSession) // Same as create since we're overwriting
+	err := rc.CreateGameSession(ctx, gameSession) // Same as create since we're overwriting
+	if err != nil {
+		return err
+	}
+
+	// Publish the updated game session
+	return rc.PublishGameSessionUpdate(ctx, gameSession)
 }
 
 func (rc *RedisClient) DeleteGameSession(ctx context.Context, id uuid.UUID) error {
