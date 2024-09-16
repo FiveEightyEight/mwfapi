@@ -3,6 +3,9 @@ package handlers
 import (
 	"net/http"
 
+	"context"
+	"log"
+
 	"github.com/FiveEightyEight/mwfapi/db"
 	"github.com/FiveEightyEight/mwfapi/game"
 	"github.com/FiveEightyEight/mwfapi/models"
@@ -165,7 +168,11 @@ func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upgrade to WebSocket"})
 		}
-		defer ws.Close()
+		defer func() {
+			ws.Close()
+			// Remove the player from the game session
+			removePlayerFromSession(c.Request().Context(), rdb, uuid.MustParse(sessionID), uuid.MustParse(userID))
+		}()
 
 		// Subscribe to game session updates
 		updates, err := rdb.SubscribeToGameSession(c.Request().Context(), uuid.MustParse(sessionID))
@@ -188,5 +195,28 @@ func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo
 		}
 
 		return nil
+	}
+}
+
+func removePlayerFromSession(ctx context.Context, rdb *db.RedisClient, sessionID, userID uuid.UUID) {
+	gameSession, err := rdb.GetGameSession(ctx, sessionID)
+	if err != nil {
+		// Log the error, but don't return it as this is a cleanup function
+		log.Printf("Failed to get game session: %v", err)
+		return
+	}
+
+	// Remove the player from the game session
+	for i, player := range gameSession.Players {
+		if player.ID == userID {
+			gameSession.Players = append(gameSession.Players[:i], gameSession.Players[i+1:]...)
+			break
+		}
+	}
+
+	// Update the game session in Redis
+	err = rdb.UpdateGameSession(ctx, gameSession)
+	if err != nil {
+		log.Printf("Failed to update game session: %v", err)
 	}
 }
