@@ -67,34 +67,7 @@ func CreateGame(rdb *db.RedisClient) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create game session"})
 		}
 
-		// Upgrade the HTTP connection to a WebSocket connection
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upgrade to WebSocket"})
-		}
-		defer ws.Close()
-
-		// Subscribe to game session updates
-		updates, err := rdb.SubscribeToGameSession(c.Request().Context(), gameSession.ID)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to subscribe to game session"})
-		}
-
-		// Send initial game session data
-		err = ws.WriteJSON(gameSession)
-		if err != nil {
-			return nil
-		}
-
-		// Listen for updates and send them to the client
-		for update := range updates {
-			err = ws.WriteJSON(update)
-			if err != nil {
-				break
-			}
-		}
-
-		return nil
+		return c.JSON(http.StatusCreated, gameSession)
 	}
 }
 
@@ -146,7 +119,7 @@ func UpdateGameSession(rdb *db.RedisClient) echo.HandlerFunc {
 	}
 }
 
-func ConnectToGameSession(rdb *db.RedisClient) echo.HandlerFunc {
+func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		sessionID := c.Param("game_session_id")
 		if sessionID == "" {
