@@ -178,43 +178,58 @@ func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo
 			log.Printf("Error upgrading to WebSocket: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upgrade to WebSocket"})
 		}
-		log.Println("Successfully upgraded to WebSocket connection")
 		defer func() {
 			ws.Close()
 			log.Printf("Closing WebSocket connection for user %s", userID)
-			// Remove the player from the game session
 			removePlayerFromSession(c.Request().Context(), rdb, uuid.MustParse(sessionID), uuid.MustParse(userID))
 		}()
 
-		// Subscribe to game session updates
-		log.Println("Subscribing to game session updates")
-		updates, err := rdb.SubscribeToGameSession(c.Request().Context(), uuid.MustParse(sessionID))
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
+
+		updates, err := rdb.SubscribeToGameSession(ctx, uuid.MustParse(sessionID))
 		if err != nil {
 			log.Printf("Error subscribing to game session: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to subscribe to game session"})
 		}
 
 		// Send initial game session data
-		log.Println("Sending initial game session data")
-		err = ws.WriteJSON(gameSession)
-		if err != nil {
+		if err := ws.WriteJSON(gameSession); err != nil {
 			log.Printf("Error sending initial game session data: %v", err)
 			return nil
 		}
 
-		// Listen for updates and send them to the client
-		log.Println("Starting to listen for game session updates")
-		for update := range updates {
-			log.Printf("Received update: %+v", update)
-			err = ws.WriteJSON(update)
-			if err != nil {
-				log.Printf("Error sending update to client: %v", err)
-				break
+		// Channel for WebSocket read errors
+		readErr := make(chan error)
+
+		// Start a goroutine to read from WebSocket
+		go func() {
+			for {
+				messageType, message, err := ws.ReadMessage()
+				if err != nil {
+					log.Printf("Error reading message: %v", err)
+					readErr <- err
+					return
+				}
+				log.Printf("Received message from client (type %d): %s", messageType, string(message))
+			}
+		}()
+
+		// Main event loop
+		for {
+			select {
+			case update := <-updates:
+				if err := ws.WriteJSON(update); err != nil {
+					log.Printf("Error sending update to client: %v", err)
+					return nil
+				}
+			case err := <-readErr:
+				log.Printf("WebSocket read error: %v", err)
+				return nil
+			case <-ctx.Done():
+				return nil
 			}
 		}
-
-		log.Println("WebSocket connection closed")
-		return nil
 	}
 }
 
