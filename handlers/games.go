@@ -236,7 +236,6 @@ func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo
 func removePlayerFromSession(ctx context.Context, rdb *db.RedisClient, sessionID, userID uuid.UUID) {
 	gameSession, err := rdb.GetGameSession(ctx, sessionID)
 	if err != nil {
-		// Log the error, but don't return it as this is a cleanup function
 		log.Printf("Failed to get game session: %v", err)
 		return
 	}
@@ -247,6 +246,17 @@ func removePlayerFromSession(ctx context.Context, rdb *db.RedisClient, sessionID
 			gameSession.Players = append(gameSession.Players[:i], gameSession.Players[i+1:]...)
 			break
 		}
+	}
+
+	// If no players remain, remove the game session from active sessions
+	if len(gameSession.Players) == 0 {
+		err = rdb.UpdateActiveGameSessions(ctx, sessionID, false)
+		if err != nil {
+			log.Printf("Failed to remove empty game session from active sessions: %v", err)
+		} else {
+			log.Printf("Removed empty game session from active sessions: %s", sessionID)
+		}
+		return
 	}
 
 	// Update the game session in Redis
