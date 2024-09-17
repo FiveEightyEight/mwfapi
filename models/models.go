@@ -76,3 +76,8 @@ type GameProblem struct {
 	Method  GameConfigMethod `json:"method"`
 	Answer  int              `json:"answer"`
 }
+
+type SocketMessage struct {
+	Type    string                 `json:"type"`
+	Payload map[string]interface{} `json:"payload"`
+}
