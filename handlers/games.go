@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"net/http"
-
 	"context"
+	"encoding/json"
 	"log"
+	"net/http"
+	"time"
 
 	"github.com/FiveEightyEight/mwfapi/db"
 	"github.com/FiveEightyEight/mwfapi/game"
@@ -205,13 +206,21 @@ func ConnectToGameSession(rdb *db.RedisClient, upgrader websocket.Upgrader) echo
 		// Start a goroutine to read from WebSocket
 		go func() {
 			for {
-				messageType, message, err := ws.ReadMessage()
+				messageType, msg, err := ws.ReadMessage()
 				if err != nil {
 					log.Printf("Error reading message: %v", err)
 					readErr <- err
 					return
 				}
-				log.Printf("Received message from client (type %d): %s", messageType, string(message))
+				log.Printf("Received message from client (type %d): %s, from user %s", messageType, string(msg), userID)
+				// Parse the JSON message
+				var message models.SocketMessage
+				err = json.Unmarshal(msg, &message)
+				if err != nil {
+					log.Println("Error unmarshalling message:", err)
+					continue
+				}
+				handleGameEvent(ctx, rdb, uuid.MustParse(sessionID), uuid.MustParse(userID), message.Type, message.Payload)
 			}
 		}()
 
@@ -264,4 +273,96 @@ func removePlayerFromSession(ctx context.Context, rdb *db.RedisClient, sessionID
 	if err != nil {
 		log.Printf("Failed to update game session: %v", err)
 	}
+}
+
+func handleGameEvent(ctx context.Context, rdb *db.RedisClient, sessionID, userID uuid.UUID, eventType string, payload map[string]interface{}) {
+	gameSession, err := rdb.GetGameSession(ctx, sessionID)
+	if err != nil {
+		log.Printf("Failed to get game session: %v", err)
+		return
+	}
+
+	switch eventType {
+	case "start_game":
+		if gameSession.Status != "waiting" {
+			log.Printf("Game session %s is not in waiting status, cannot start game", sessionID)
+			return
+		}
+		for _, player := range gameSession.Players {
+			if player.ID == userID {
+				gameSession.Status = "in_progress"
+				err = rdb.UpdateGameSession(ctx, gameSession)
+				if err != nil {
+					log.Printf("Failed to update game session: %v", err)
+				}
+				return
+			}
+		}
+	case "submit_answer":
+		answer := payload["answer"].(int)
+		problem := gameSession.Problems[gameSession.CurrentProblemIndex]
+		if answer == problem.Answer {
+			var playerScore models.Score
+			for _, player := range gameSession.Scores {
+				if player.UserID == userID {
+					playerScore = player
+					break
+				}
+			}
+			if playerScore.UserID == uuid.Nil {
+				for _, player := range gameSession.Players {
+					if player.ID == userID {
+						playerScore = models.Score{
+							ID:       uuid.New(),
+							UserID:   userID,
+							Username: player.Username,
+							Points:   1,
+						}
+						break
+					}
+				}
+				gameSession.Scores = append(gameSession.Scores, playerScore)
+			} else {
+				playerScore.Points += 1
+			}
+			err = rdb.UpdateGameSession(ctx, gameSession)
+			if err != nil {
+				log.Printf("Failed to update game session: %v", err)
+			}
+			gameSession.CurrentProblemIndex += 1
+			if gameSession.CurrentProblemIndex >= len(gameSession.Problems) {
+				gameSession.Status = "finished"
+				gameSession.EndTime = time.Now()
+			}
+			err = rdb.UpdateGameSession(ctx, gameSession)
+			if err != nil {
+				log.Printf("Failed to update game session: %v", err)
+			}
+		}
+	case "skip_problem":
+		gameSession.CurrentProblemIndex += 1
+		if gameSession.CurrentProblemIndex >= len(gameSession.Problems) {
+			gameSession.Status = "finished"
+			gameSession.EndTime = time.Now()
+		}
+		err = rdb.UpdateGameSession(ctx, gameSession)
+		if err != nil {
+			log.Printf("Failed to update game session: %v", err)
+		}
+	case "new_game":
+		gameSession.Status = "waiting"
+		gameSession.Scores = []models.Score{}
+		gameSession.GameConfig = models.GameConfig{}
+		gameSession.Problems = []models.GameProblem{}
+		gameSession.CurrentProblemIndex = 0
+		newGameConfig := payload["game_config"].(models.GameConfig)
+		gameSession.GameConfig = newGameConfig
+		gameSession.Problems = game.GenerateGameProblems(newGameConfig)
+		err = rdb.UpdateGameSession(ctx, gameSession)
+		if err != nil {
+			log.Printf("Failed to update game session: %v", err)
+		}
+
+	}
+
 }
