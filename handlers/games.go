@@ -299,13 +299,20 @@ func handleGameEvent(ctx context.Context, rdb *db.RedisClient, sessionID, userID
 			}
 		}
 	case "submit_answer":
-		answer := payload["answer"].(int)
+		answerFloat, ok := payload["answer"].(float64)
+		if !ok {
+			log.Printf("Invalid answer format for session %s", sessionID)
+			return
+		}
+		answer := int(answerFloat)
 		problem := gameSession.Problems[gameSession.CurrentProblemIndex]
 		if answer == problem.Answer {
 			var playerScore models.Score
-			for _, player := range gameSession.Scores {
+			var playerIndex int
+			for index, player := range gameSession.Scores {
 				if player.UserID == userID {
 					playerScore = player
+					playerIndex = index
 					break
 				}
 			}
@@ -323,7 +330,7 @@ func handleGameEvent(ctx context.Context, rdb *db.RedisClient, sessionID, userID
 				}
 				gameSession.Scores = append(gameSession.Scores, playerScore)
 			} else {
-				playerScore.Points += 1
+				gameSession.Scores[playerIndex].Points += 1
 			}
 			err = rdb.UpdateGameSession(ctx, gameSession)
 			if err != nil {
@@ -355,7 +362,33 @@ func handleGameEvent(ctx context.Context, rdb *db.RedisClient, sessionID, userID
 		gameSession.GameConfig = models.GameConfig{}
 		gameSession.Problems = []models.GameProblem{}
 		gameSession.CurrentProblemIndex = 0
-		newGameConfig := payload["game_config"].(models.GameConfig)
+		gameConfigMap, ok := payload["game_config"].(map[string]interface{})
+		if !ok {
+			log.Printf("Invalid game_config format for session %s", sessionID)
+			return
+		}
+
+		var newGameConfig models.GameConfig
+
+		// Convert methods
+		if methodsInterface, ok := gameConfigMap["methods"].([]interface{}); ok {
+			for _, method := range methodsInterface {
+				if methodStr, ok := method.(string); ok {
+					newGameConfig.Methods = append(newGameConfig.Methods, models.GameConfigMethod(methodStr))
+				}
+			}
+		}
+
+		// Convert range
+		if rangeMap, ok := gameConfigMap["range"].(map[string]interface{}); ok {
+			if min, ok := rangeMap["min"].(float64); ok {
+				newGameConfig.Range.Min = int(min)
+			}
+			if max, ok := rangeMap["max"].(float64); ok {
+				newGameConfig.Range.Max = int(max)
+			}
+		}
+
 		gameSession.GameConfig = newGameConfig
 		gameSession.Problems = game.GenerateGameProblems(newGameConfig)
 		err = rdb.UpdateGameSession(ctx, gameSession)
